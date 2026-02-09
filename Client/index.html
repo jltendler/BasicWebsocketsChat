@@ -6,172 +6,63 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vue.js + WebSocket Demo</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f9;
-        }
-
-        #app {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 1rem;
-            padding: 10px;
-            background: #eee;
-            border-radius: 4px;
-            align-items: center;
-        }
-
-        .status {
-            margin-left: auto;
-            font-weight: bold;
-        }
-
-        .connected {
-            color: green;
-        }
-
-        .disconnected {
-            color: red;
-        }
-
-        .chat-window {
-            height: 300px;
-            border: 1px solid #ddd;
-            overflow-y: scroll;
-            padding: 10px;
-            margin-bottom: 1rem;
-            border-radius: 4px;
-            background: #fafafa;
-        }
-
-        .message {
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-            border-radius: 4px;
-            background: #e1f5fe;
-        }
-
-        /* System Messages */
-        .system-message {
-            font-style: italic;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-            border-radius: 4px;
-            text-align: center;
-            border: 1px solid transparent;
-        }
-
-        .system-message.success {
-            background-color: #d4edda;
-            color: #155724;
-            border-color: #c3e6cb;
-        }
-
-        .system-message.error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border-color: #f5c6cb;
-        }
-
-        .system-message.info {
-            background-color: #fff3cd;
-            color: #856404;
-            border-color: #ffeeba;
-        }
-
-        /* Manilla/Yellow tint */
-
-        .input-area {
-            display: flex;
-            gap: 10px;
-        }
-
-        input {
-            flex-grow: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        button {
-            padding: 10px 20px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        button.disconnect {
-            background-color: #f44336;
-        }
-
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-        }
-
-        .sender {
-            font-weight: bold;
-            margin-right: 5px;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
     <div id="app">
-        <h1>Vue.js + WebSocket Chat</h1>
-
-        <div class="controls">
-            <label>Username:</label>
-            <!-- Allow editing even when connected. Trigger rename on blur or enter -->
-            <input v-model="username" @blur="handleRename" @keyup.enter="handleRename" placeholder="Enter Username">
-            <button @click="toggleConnection" :class="{ disconnect: isConnected }">
-                {{ isConnected ? 'Disconnect' : 'Connect' }}
-            </button>
-            <div class="status" :class="{ connected: isConnected, disconnected: !isConnected }">
-                {{ connectionStatus }}
-            </div>
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h3>Online Users</h3>
+            <ul class="user-list">
+                <li v-for="user in users" :key="user" class="online-username" :class="{ me: user === username}"
+                    :title="user"> <!-- ability to see full username even if it's truncated for length -->
+                    {{ user }} {{ user === username ? '[You]' : '' }}
+                </li>
+                <li v-if="!isConnected" style="color: #999; font-style: italic;">Disconnected</li>
+                <li v-else-if="users.length === 0" style="color: #999; font-style: italic;">No users online</li>
+            </ul>
         </div>
 
-        <div class="chat-window" ref="chatWindow">
-            <div v-for="(msg, index) in messages" :key="index">
-                <!-- Apply class based on subType -->
-                <div v-if="msg.type === 'system'" :class="['system-message', msg.subType]">
-                    {{ msg.text }}
-                </div>
-                <div v-else class="message">
-                    <span class="sender">{{ msg.user }}:</span>
-                    <span>{{ msg.text }}</span>
+        <!-- Main Chat Area -->
+        <div class="main-content">
+            <h1>Vue.js + WebSocket Chat</h1>
+
+            <div class="controls">
+                <label>Username:</label>
+                <input v-model="username" maxlength="18" @keyup.enter="handleRename" placeholder="Enter Username">
+                <!--Save on enter, or button press -->
+                <button @click="handleRename" :disabled="!isConnected || username === previousUsername">Save</button>
+                <button @click="toggleConnection" :class="{ disconnect: isConnected }">
+                    {{ isConnected ? 'Disconnect' : 'Connect' }}
+                </button>
+                <div class="status" :class="{ connected: isConnected, disconnected: !isConnected }">
+                    {{ connectionStatus }}
                 </div>
             </div>
-        </div>
 
-        <div class="input-area">
-            <input v-model="newMessage" @keyup.enter="sendMessage" placeholder="Type a message..."
-                :disabled="!isConnected">
-            <button @click="sendMessage" :disabled="!isConnected">Send</button>
+            <div class="chat-window" ref="chatWindow">
+                <div v-for="(msg, index) in messages" :key="index">
+                    <div v-if="msg.type === 'system'" :class="['system-message', msg.subType]">
+                        {{ msg.text }}
+                    </div>
+                    <div v-else class="message">
+                        <span class="sender">{{ msg.user }}:</span>
+                        <span>{{ msg.text }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <input v-model="newMessage" @keyup.enter="sendMessage" placeholder="Type a message..."
+                    :disabled="!isConnected">
+                <button @click="sendMessage" :disabled="!isConnected">Send</button>
+            </div>
         </div>
     </div>
 
     <script>
-        const { createApp, ref, onMounted, onUnmounted, nextTick } = Vue;
+        const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 
         createApp({
             setup() {
@@ -179,10 +70,15 @@
                 const isConnected = ref(false);
                 const connectionStatus = ref('Disconnected');
                 const messages = ref([]);
+                const users = ref([]);
                 const newMessage = ref('');
                 const username = ref('User' + Math.floor(Math.random() * 10000));
-                const previousUsername = ref(''); // Track previous name to detect changes
+                const previousUsername = ref('');
                 const chatWindow = ref(null);
+
+                const sortedUsers = computed(() => {
+                    return [...users.value].sort((a, b) => a.localeCompare(b));
+                });
 
                 const toggleConnection = () => {
                     if (isConnected.value) {
@@ -204,25 +100,30 @@
                     socket.value.onopen = () => {
                         isConnected.value = true;
                         connectionStatus.value = 'Connected';
-                        previousUsername.value = username.value; // Sync on connect
-                        // Send Join message
+                        previousUsername.value = username.value;
                         socket.value.send(JSON.stringify({ type: 'join', user: username.value }));
                     };
 
                     socket.value.onmessage = (event) => {
                         try {
                             const data = JSON.parse(event.data);
-                            messages.value.push(data);
+
+                            if (data.type === 'userlist') {
+                                users.value = data.users;
+                            } else {
+                                messages.value.push(data);
+                                scrollToBottom();
+                            }
                         } catch (e) {
                             console.error("Failed to parse message", e);
                         }
-                        scrollToBottom();
                     };
 
                     socket.value.onclose = () => {
                         isConnected.value = false;
                         connectionStatus.value = 'Disconnected';
                         socket.value = null;
+                        users.value = []; // Clear user list on disconnect
                         messages.value.push({ type: 'system', subType: 'error', text: 'You have been disconnected.' });
                         scrollToBottom();
                     };
@@ -279,6 +180,7 @@
                     isConnected,
                     connectionStatus,
                     messages,
+                    users: sortedUsers,
                     newMessage,
                     username,
                     toggleConnection,
