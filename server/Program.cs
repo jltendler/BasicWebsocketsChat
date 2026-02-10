@@ -12,9 +12,11 @@ using System.Threading.Tasks;
 class Program
 {
     // Map SocketID -> WebSocket
-    private static ConcurrentDictionary<string, WebSocket> _sockets = new ConcurrentDictionary<string, WebSocket>();
+    private static readonly ConcurrentDictionary<string, WebSocket> _sockets = new();
     // Map SocketID -> Username
-    private static ConcurrentDictionary<string, string> _users = new ConcurrentDictionary<string, string>();
+    private static readonly ConcurrentDictionary<string, string> _users = new();
+
+    private const string UNCONNECTED_USERNAME = "DefaultUserName"; // Used when socket is open but a type: join message has not been received.
 
     static async Task Main(string[] args)
     {
@@ -40,7 +42,7 @@ class Program
 
     private static async void ProcessRequest(HttpListenerContext context)
     {
-        WebSocketContext? webSocketContext = null;
+        WebSocketContext? webSocketContext;
         string socketId = Guid.NewGuid().ToString();
 
         try
@@ -48,8 +50,8 @@ class Program
             webSocketContext = await context.AcceptWebSocketAsync(subProtocol: null);
             WebSocket webSocket = webSocketContext.WebSocket;
             _sockets.TryAdd(socketId, webSocket);
-            // Default username until they join
-            _users.TryAdd(socketId, "DefaultUserName");
+            // Default username until user joins/connects
+            _users.TryAdd(socketId, UNCONNECTED_USERNAME);
 
             Console.WriteLine($"Client connected: {socketId}");
 
@@ -74,7 +76,7 @@ class Program
             if (_users.TryRemove(socketId, out string? username))
             {
                 Console.WriteLine($"Client disconnected: {socketId} ({username})");
-                if (username != "DefaultUserName" && username != null)
+                if (username != UNCONNECTED_USERNAME && username != null)
                 {
                     await Broadcast(JsonSerializer.Serialize(new
                     {
@@ -127,7 +129,7 @@ class Program
                         else if (msgType == "message")
                         {
                             string text = jsonDoc.RootElement.GetProperty("text").GetString() ?? "";
-                            string user = _users.ContainsKey(socketId) ? _users[socketId] : "Unknown";
+                            string user = _users.TryGetValue(socketId, out var name) ? name : "Unknown";
                             await Broadcast(JsonSerializer.Serialize(new
                             {
                                 type = "message",
@@ -137,7 +139,7 @@ class Program
                         }
                         else if (msgType == "rename")
                         {
-                            string oldName = _users.ContainsKey(socketId) ? _users[socketId] : "Unknown";
+                            string oldName = _users.TryGetValue(socketId, out var storedName) ? storedName : "Unknown";
                             string newName = jsonDoc.RootElement.GetProperty("user").GetString() ?? oldName;
 
                             if (oldName != newName)
@@ -184,8 +186,8 @@ class Program
 
     private static async Task BroadcastUserList()
     {
-        // Broadcast list of users excluding the temporary defaults
-        var users = _users.Values.Where(u => u != "DefaultUserName").OrderBy(u => u).ToList();
+        // Broadcast list of users excluding unconnected users
+        var users = _users.Values.Where(u => u != UNCONNECTED_USERNAME).OrderBy(u => u).ToList();
         var message = JsonSerializer.Serialize(new { type = "userlist", users = users });
         await Broadcast(message);
     }
