@@ -98,16 +98,32 @@ class Program
         {
             try
             {
-                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                using (var ms = new System.IO.MemoryStream())
+                {
+                    WebSocketReceiveResult result;
+                    do
+                    {
+                        result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            break;
+                        }
+                        ms.Write(buffer, 0, result.Count);
+                    } while (!result.EndOfMessage);
 
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    break;
-                }
-                else
-                {
-                    string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    Console.WriteLine($"Received from {socketId}: {message}");
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        break;
+
+                    ms.Seek(0, System.IO.SeekOrigin.Begin);
+
+                    // Use StreamReader to read directly with correct encoding
+                    string message;
+                    using (var reader = new System.IO.StreamReader(ms, Encoding.UTF8))
+                    {
+                        message = await reader.ReadToEndAsync();
+                    }
+
+                    // Console.WriteLine($"Received from {socketId}: {message.Length} bytes"); // Verbose logging
 
                     try
                     {
@@ -128,14 +144,27 @@ class Program
                         }
                         else if (msgType == "message")
                         {
-                            string text = jsonDoc.RootElement.GetProperty("text").GetString() ?? "";
+                            string text = "";
+                            if (jsonDoc.RootElement.TryGetProperty("text", out var textProp))
+                                text = textProp.GetString() ?? "";
+
+                            string? image = null;
+                            if (jsonDoc.RootElement.TryGetProperty("image", out var imageProp))
+                                image = imageProp.GetString();
+
                             string user = _users.TryGetValue(socketId, out var name) ? name : "Unknown";
-                            await Broadcast(JsonSerializer.Serialize(new
+
+                            // Only broadcast if there is something to show
+                            if (!string.IsNullOrWhiteSpace(text) || !string.IsNullOrWhiteSpace(image))
                             {
-                                type = "message",
-                                user = user,
-                                text = text
-                            }));
+                                await Broadcast(JsonSerializer.Serialize(new
+                                {
+                                    type = "message",
+                                    user = user,
+                                    text = text,
+                                    image = image
+                                }));
+                            }
                         }
                         else if (msgType == "rename")
                         {

@@ -48,15 +48,29 @@
                     </div>
                     <div v-else class="message">
                         <span class="sender">{{ msg.user }}:</span>
-                        <span>{{ msg.text }}</span>
+                        <div v-if="msg.image">
+                            <img :src="msg.image" alt="User Image">
+                        </div>
+                        <span v-if="msg.text">{{ msg.text }}</span>
                     </div>
                 </div>
             </div>
 
             <div class="input-area">
-                <input v-model="newMessage" @keyup.enter="sendMessage" placeholder="Type a message..."
-                    :disabled="!isConnected">
-                <button @click="sendMessage" :disabled="!isConnected">Send</button>
+                <div class="message-input-container">
+                    <input v-model="newMessage" @keyup.enter="sendMessage" placeholder="Type a message..." :disabled="!isConnected">
+                    <div v-if="selectedImage" class="preview-container">
+                        <img :src="selectedImage" class="image-preview" />
+                        <span class="remove-image" @click="clearImage">×</span>
+                    </div>
+                </div>
+                
+                <label class="file-upload-label" :style="{ opacity: isConnected ? 1 : 0.5 }">
+                    📷
+                    <input type="file" accept="image/*" @change="handleFileSelect" :disabled="!isConnected">
+                </label>
+
+                <button @click="sendMessage" :disabled="!isConnected || (!newMessage && !selectedImage)">Send</button>
             </div>
         </div>
     </div>
@@ -72,6 +86,7 @@
                 const messages = ref([]);
                 const users = ref([]);
                 const newMessage = ref('');
+                const selectedImage = ref(null); // Base64 string of selected image
                 const username = ref('User' + Math.floor(Math.random() * 10000));
                 const previousUsername = ref('');
                 const chatWindow = ref(null);
@@ -149,14 +164,34 @@
                     }
                 };
 
+                const handleFileSelect = (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            selectedImage.value = e.target.result;
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                };
+
+                const clearImage = () => {
+                   selectedImage.value = null;
+                   // Reset file input if needed, though simpler to just clear state
+                   const fileInput = document.querySelector('input[type="file"]');
+                   if (fileInput) fileInput.value = '';
+                };
+
                 const sendMessage = () => {
-                    if (newMessage.value.trim() && isConnected.value) {
+                    if ((newMessage.value.trim() || selectedImage.value) && isConnected.value) {
                         const payload = JSON.stringify({
                             type: 'message',
-                            text: newMessage.value
+                            text: newMessage.value,
+                            image: selectedImage.value
                         });
                         socket.value.send(payload);
                         newMessage.value = '';
+                        clearImage();
                     }
                 };
 
@@ -182,6 +217,9 @@
                     messages,
                     users: sortedUsers,
                     newMessage,
+                    selectedImage,
+                    handleFileSelect,
+                    clearImage,
                     username,
                     toggleConnection,
                     sendMessage,
